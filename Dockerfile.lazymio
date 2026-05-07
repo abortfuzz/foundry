@@ -1,0 +1,111 @@
+# syntax=docker/dockerfile:1
+
+FROM rust:1-bookworm AS chef
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libssl-dev git pkg-config curl perl ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    BINSTALL_VERSION="v1.18.1"; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) ARCH="x86_64-unknown-linux-musl"; SHA256="cf2a4b54494ea8555d6349685e9a301efc1051d9fba6308c76914b2486f8700f" ;; \
+      arm64) ARCH="aarch64-unknown-linux-musl"; SHA256="c55962a0115f9716b709216de7f8bdd59d6ba8738779e60b051b4593f677717a" ;; \
+      *) echo "unsupported architecture" >&2; exit 1 ;; \
+    esac; \
+    curl -L --proto '=https' --tlsv1.2 -sSf \
+      "https://github.com/cargo-bins/cargo-binstall/releases/download/${BINSTALL_VERSION}/cargo-binstall-${ARCH}.tgz" \
+      -o /tmp/cargo-binstall.tgz; \
+    echo "${SHA256}  /tmp/cargo-binstall.tgz" | sha256sum -c -; \
+    tar -xzf /tmp/cargo-binstall.tgz -C /usr/local/cargo/bin cargo-binstall; \
+    rm /tmp/cargo-binstall.tgz
+RUN cargo binstall -y cargo-chef sccache
+
+# Plan dependencies via cargo-chef.
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Build foundry.
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+
+ARG RUST_PROFILE=release
+ARG RUST_FEATURES=cli,asm-keccak
+
+ENV CARGO_INCREMENTAL=0 \
+    RUSTC_WRAPPER=sccache \
+    SCCACHE_DIR=/sccache
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo chef cook --recipe-path recipe.json --profile ${RUST_PROFILE} --no-default-features --features "${RUST_FEATURES}"
+
+ARG TAG_NAME=dev
+ENV TAG_NAME=$TAG_NAME
+ARG VERGEN_GIT_SHA="ffffffffffffffffffffffffffffffffffffffff"
+ENV VERGEN_GIT_SHA=$VERGEN_GIT_SHA
+
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo build --profile ${RUST_PROFILE} --no-default-features --features "${RUST_FEATURES}" \
+    && sccache --show-stats || true
+
+RUN set -eux; \
+    if [ "${RUST_PROFILE}" = "dev" ]; then OUT=/app/target/debug; \
+    else OUT=/app/target/${RUST_PROFILE}; fi; \
+    mkdir -p /app/output; \
+    mv ${OUT}/forge ${OUT}/cast ${OUT}/anvil ${OUT}/chisel /app/output/
+
+# Install svm-rs and pre-fetch every solc version it knows about.
+FROM chef AS svm
+RUN cargo binstall -y svm-rs
+ENV HOME=/svm-home
+RUN set -eux; \
+    mkdir -p "$HOME"; \
+    # `svm list` prints both installed and available; nothing is installed yet, \
+    # so all known versions appear in the available section as `"X.Y.Z"`. \
+    svm list 2>&1 | tee /tmp/svm-list.raw; \
+    grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' /tmp/svm-list.raw \
+      | tr -d '"' \
+      | sort -uV > /tmp/all.txt; \
+    echo "Found $(wc -l < /tmp/all.txt) solc versions to install"; \
+    failed=0; ok=0; \
+    while read -r v; do \
+      [ -z "$v" ] && continue; \
+      if svm install --non-interactive "$v" >/tmp/install.log 2>&1; then \
+        ok=$((ok+1)); echo "ok  $v"; \
+      else \
+        failed=$((failed+1)); echo "skip $v"; tail -n3 /tmp/install.log | sed 's/^/    /'; \
+      fi; \
+    done < /tmp/all.txt; \
+    echo "installed=$ok skipped=$failed"; \
+    ls "$HOME/.svm" | head; \
+    du -sh "$HOME/.svm"
+
+# Final runtime image.
+FROM ubuntu:22.04 AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1000 foundry && \
+    useradd -m -u 1000 -g foundry foundry
+
+COPY --from=builder /app/output/* /usr/local/bin/
+COPY --from=svm /usr/local/cargo/bin/svm /usr/local/bin/svm
+COPY --from=svm --chown=foundry:foundry /svm-home/.svm /home/foundry/.svm
+
+USER foundry
+WORKDIR /home/foundry
+
+ENTRYPOINT ["/bin/sh", "-c"]
+
+LABEL org.opencontainers.image.source="https://github.com/abortfuzz/foundry" \
+      org.opencontainers.image.title="foundry+svm" \
+      org.opencontainers.image.description="Foundry image with svm-rs and every available solc pre-installed"
