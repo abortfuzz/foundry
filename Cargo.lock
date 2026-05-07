@@ -4642,7 +4642,7 @@ dependencies = [
  "semver 1.0.28",
  "serde",
  "serde_json",
- "similar",
+ "similar 3.1.0",
  "similar-asserts",
  "solar-compiler",
  "soldeer-commands",
@@ -4693,7 +4693,7 @@ dependencies = [
  "foundry-config",
  "foundry-test-utils",
  "itertools 0.14.0",
- "similar",
+ "similar 3.1.0",
  "snapbox",
  "solar-compiler",
  "toml",
@@ -10568,13 +10568,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "similar"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04d93e861ede2e497b47833469b8ec9d5c07fa4c78ce7a00f6eb7dd8168b4b3f"
+dependencies = [
+ "bstr",
+]
+
+[[package]]
 name = "similar-asserts"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5b441962c817e33508847a22bd82f03a30cff43642dc2fae8b050566121eb9a"
 dependencies = [
  "console 0.15.11",
- "similar",
+ "similar 2.7.0",
 ]
 
 [[package]]
@@ -10644,7 +10653,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "similar",
+ "similar 2.7.0",
  "snapbox-macros",
 ]
 
