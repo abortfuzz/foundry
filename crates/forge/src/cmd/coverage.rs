@@ -50,6 +50,15 @@ pub struct CoverageArgs {
     #[arg(long)]
     ir_minimum: bool,
 
+    /// Force `viaIR` with the optimizer settings from `foundry.toml` as-is.
+    ///
+    /// Use this only when `--ir-minimum` is not enough to resolve "stack too deep"
+    /// errors. Source mappings under a fully optimized via-IR build are unreliable
+    /// and line coverage may report false positives (lines reported as hit that
+    /// were never executed) as well as false negatives.
+    #[arg(long, conflicts_with = "ir_minimum")]
+    force_via_ir: bool,
+
     /// The path to output the report.
     ///
     /// If not specified, the report will be stored in the root of the project.
@@ -133,7 +142,15 @@ impl CoverageArgs {
     fn build(&self, config: &Config) -> Result<(Project, ProjectCompileOutput)> {
         let mut project = config.ephemeral_project()?;
 
-        if self.ir_minimum {
+        if self.force_via_ir {
+            sh_warn!(
+                "`--force-via-ir` uses your `foundry.toml` `viaIR` and optimizer settings as-is.\n\
+                 Source mappings under a fully optimized via-IR build are unreliable: line \
+                 coverage can report false positives (lines marked hit that never executed) \
+                 and false negatives.\n\
+                 Only use this flag when `--ir-minimum` is insufficient to resolve \"stack too deep\" errors."
+            )?;
+        } else if self.ir_minimum {
             sh_warn!(
                 "`--ir-minimum` enables `viaIR` with minimum optimization, \
                  which can result in inaccurate source mappings.\n\
@@ -141,6 +158,7 @@ impl CoverageArgs {
                  Note that `viaIR` is production ready since Solidity 0.8.13 and above.\n\
                  See more: https://book.getfoundry.sh/guides/best-practices/stack-too-deep"
             )?;
+            config.disable_optimizations(&mut project, self.ir_minimum);
         } else {
             sh_warn!(
                 "optimizer settings and `viaIR` have been disabled for accurate coverage reports.\n\
@@ -148,9 +166,8 @@ impl CoverageArgs {
                  enables `viaIR` with minimum optimization resolving most of the errors.\n\
                  See more: https://book.getfoundry.sh/guides/best-practices/stack-too-deep"
             )?;
+            config.disable_optimizations(&mut project, self.ir_minimum);
         }
-
-        config.disable_optimizations(&mut project, self.ir_minimum);
 
         let output = ProjectCompiler::default()
             .compile(&project)?
