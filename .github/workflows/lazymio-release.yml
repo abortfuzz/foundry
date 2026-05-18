@@ -1,0 +1,164 @@
+name: lazymio-release
+
+permissions: {}
+
+on:
+  push:
+    tags:
+      - "nightly-*"
+      - "v*.*.*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_PROFILE: release
+  RUST_FEATURES: aws-kms,gcp-kms,turnkey,cli,asm-keccak,js-tracer
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            platform: linux
+            arch: amd64
+            use_cross: true
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            platform: linux
+            arch: arm64
+            use_cross: true
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            platform: darwin
+            arch: amd64
+            use_cross: false
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            platform: darwin
+            arch: arm64
+            use_cross: false
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win32
+            arch: amd64
+            use_cross: false
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            platform: win32
+            arch: arm64
+            use_cross: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        shell: bash
+        run: |
+          cargo install cross --locked \
+            --git https://github.com/cross-rs/cross \
+            --rev baf457efc2555225af47963475bd70e8d2f5993f
+
+      - name: Apple M1 setup
+        if: matrix.target == 'aarch64-apple-darwin'
+        shell: bash
+        run: |
+          printf 'SDKROOT=%s\n' "$(xcrun -sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+          printf 'MACOSX_DEPLOYMENT_TARGET=%s\n' "$(xcrun -sdk macosx --show-sdk-platform-version)" >> "$GITHUB_ENV"
+
+      - name: Build forge
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          USE_CROSS: ${{ matrix.use_cross }}
+        run: |
+          set -eo pipefail
+          flags=(--locked --target "$TARGET" --profile "$RUST_PROFILE"
+            -p forge --bin forge
+            --no-default-features --features "$RUST_FEATURES")
+          # jemalloc isn't supported on MSVC.
+          if [[ "$TARGET" != *msvc* ]]; then
+            flags+=(--features jemalloc)
+          fi
+
+          if [[ "$USE_CROSS" == "true" ]]; then
+            cross build "${flags[@]}"
+          else
+            cargo build "${flags[@]}"
+          fi
+
+      - name: Package
+        id: pkg
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          OUT_DIR="target/${TARGET}/${RUST_PROFILE}"
+          if [[ "$TARGET" == *windows* ]]; then
+            asset="forge_${TAG_NAME}_${PLATFORM}_${ARCH}.zip"
+            (cd "$OUT_DIR" && 7z a -tzip "${GITHUB_WORKSPACE}/${asset}" forge.exe)
+          elif [[ "$PLATFORM" == "darwin" ]]; then
+            asset="forge_${TAG_NAME}_${PLATFORM}_${ARCH}.tar.gz"
+            gtar -czvf "$asset" -C "$OUT_DIR" forge
+          else
+            asset="forge_${TAG_NAME}_${PLATFORM}_${ARCH}.tar.gz"
+            tar -czvf "$asset" -C "$OUT_DIR" forge
+            # Confirm the Linux binary is statically linked.
+            file "$OUT_DIR/forge"
+          fi
+          printf 'asset=%s\n' "$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: forge-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ steps.pkg.outputs.asset }}
+          retention-days: 3
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la artifacts/
+          flags=(--title "$TAG_NAME" --notes "Auto-built forge binaries for $TAG_NAME")
+          if [[ "$TAG_NAME" == nightly-* ]]; then
+            flags+=(--prerelease)
+          fi
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" artifacts/* --clobber
+          else
+            gh release create "$TAG_NAME" "${flags[@]}" artifacts/*
+          fi
