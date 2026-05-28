@@ -352,29 +352,29 @@ svm = { package = "svm-rs", version = "0.5", default-features = false, features 
 ] }
 
 ## alloy
-alloy-consensus = { version = "2.0.1", default-features = false }
-alloy-contract = { version = "2.0.1", default-features = false }
+alloy-consensus = { version = "2.0.5", default-features = false }
+alloy-contract = { version = "2.0.5", default-features = false }
 alloy-eips = { version = "2.0.1", default-features = false }
-alloy-eip5792 = { version = "2.0.1", default-features = false }
-alloy-ens = { version = "2.0.1", default-features = false }
-alloy-genesis = { version = "2.0.1", default-features = false }
+alloy-eip5792 = { version = "2.0.5", default-features = false }
+alloy-ens = { version = "2.0.5", default-features = false }
+alloy-genesis = { version = "2.0.5", default-features = false }
 alloy-json-rpc = { version = "2.0.1", default-features = false }
 alloy-network = { version = "2.0.1", default-features = false }
 alloy-provider = { version = "2.0.1", default-features = false }
 alloy-pubsub = { version = "2.0.1", default-features = false }
 alloy-rpc-client = { version = "2.0.1", default-features = false }
-alloy-rpc-types = { version = "2.0.1", default-features = true }
-alloy-rpc-types-beacon = { version = "2.0.1", default-features = true }
+alloy-rpc-types = { version = "2.0.5", default-features = true }
+alloy-rpc-types-beacon = { version = "2.0.5", default-features = true }
 alloy-rpc-types-engine = { version = "2.0.1", default-features = false }
 alloy-rpc-types-eth = { version = "2.0.1", default-features = false }
 alloy-serde = { version = "2.0.1", default-features = false }
 alloy-signer = { version = "2.0.1", default-features = false }
-alloy-signer-aws = { version = "2.0.1", default-features = false }
-alloy-signer-gcp = { version = "2.0.1", default-features = false }
-alloy-signer-ledger = { version = "2.0.1", default-features = false }
-alloy-signer-local = { version = "2.0.1", default-features = false }
-alloy-signer-trezor = { version = "2.0.1", default-features = false }
-alloy-signer-turnkey = { version = "2.0.1", default-features = false }
+alloy-signer-aws = { version = "2.0.5", default-features = false }
+alloy-signer-gcp = { version = "2.0.5", default-features = false }
+alloy-signer-ledger = { version = "2.0.5", default-features = false }
+alloy-signer-local = { version = "2.0.5", default-features = false }
+alloy-signer-trezor = { version = "2.0.5", default-features = false }
+alloy-signer-turnkey = { version = "2.0.5", default-features = false }
 alloy-transport = { version = "2.0.1", default-features = false }
 alloy-transport-http = { version = "2.0.1", default-features = false }
 alloy-transport-ipc = { version = "2.0.1", default-features = false }
@@ -531,7 +531,7 @@ snapbox = { version = "0.6", features = ["json", "regex", "term-svg"] }
 # Use unicode-rs which has a smaller binary size than the default ICU4X as the IDNA backend, used
 # by the `url` crate.
 # See the `idna_adapter` README.md for more details: https://docs.rs/crate/idna_adapter/latest
-idna_adapter = "=1.1.0"
+idna_adapter = "=1.2.1"
 
 [patch.crates-io]
 # https://github.com/rust-cli/rexpect/pull/106
