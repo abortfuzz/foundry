@@ -6,7 +6,7 @@ on:
   push:
     tags:
       - "nightly-*"
-      - "v*.*.*"
+      - "knowdit-*.*.*"
   workflow_dispatch:
 
 env:
